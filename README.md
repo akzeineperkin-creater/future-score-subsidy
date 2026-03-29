@@ -70,9 +70,9 @@
 
 Проект реализован командой профессионалов в рамках **inDrive Decentrathon 5.0**:
 
-* **Zhaniya Nurlankyzy (Участник А)** — Data Strategy, Data Cleaning & Exploratory Analysis (EDA).
-* **Zhangirkhan Aigarayev (Участник Б)** — ML Engineering, Feature Engineering (Climate Risk Integration) & Explainable AI (SHAP).
-* **Akzeinep Erkin (Участник С)** — UI/UX Development, Streamlit Integration & Cloud Deployment.
+* **Zhaniya Nurlankyzy** — Data Strategy, Data Cleaning & Exploratory Analysis (EDA).
+* **Zhangirkhan Aigarayev** — ML Engineering, Feature Engineering (Climate Risk Integration) & Explainable AI (SHAP).
+* **Akzeinep Erkin** — UI/UX Development, Streamlit Integration & Cloud Deployment.
 
 ---
 *Разработано в марте 2026 года для Хакатона Decentrathon 5.0.*
