@@ -10,7 +10,7 @@ st.set_page_config(page_title="FutureScore | МСХ РК", page_icon="🌾", lay
 
 # --- 1. ПУТИ К ФАЙЛАМ ---
 # Используй точное название файла, который лежит в папке!
-DATA_PATH = 'final_dataset_pro (1).csv' 
+DATA_PATH = 'final_dataset_pro.csv' 
 MODEL_PATH = 'futurescore_model_pro.pkl'
 
 # --- 2. ЗАГРУЗКА И РАСШИФРОВКА ML-ДАННЫХ ---
