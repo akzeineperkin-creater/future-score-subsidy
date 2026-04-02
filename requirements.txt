@@ -1,8 +1,10 @@
-streamlit>=1.28
+streamlit
 pandas
 numpy
-xgboost
+joblib
 plotly
+xgboost
 scikit-learn
-shap
-matplotlib
+ultralytics
+opencv-python-headless
+Pillow
