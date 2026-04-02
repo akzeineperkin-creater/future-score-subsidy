@@ -6,3 +6,4 @@ plotly
 ultralytics
 opencv-python-headless
 Pillow
+PyPDF2
