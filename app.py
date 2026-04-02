@@ -10,7 +10,8 @@ import os
 st.set_page_config(page_title="FutureScore | МСХ РК", page_icon="🌾", layout="wide")
 
 # --- 2. ПУТИ К ФАЙЛАМ ---
-DATA_PATH = 'features.csv'
+# Указываем, что файл ТОЧНО лежит в папке data
+DATA_PATH = os.path.join('data', 'features.csv')
 MODEL_PATH = 'futurescore_model_pro.pkl'
 ARTIFACTS_PATH = 'data_pipeline_artifacts_pro.pkl'
 
@@ -27,22 +28,29 @@ def load_ml_assets():
 
 @st.cache_data
 def load_data():
-    try:
-        if os.path.exists(DATA_PATH):
+    if os.path.exists(DATA_PATH):
+        try:
+            # Сначала пробуем стандартный метод (запятая)
             df = pd.read_csv(DATA_PATH)
-        else:
-            df = pd.DataFrame({
-                'Фермер': ['КХ Болашак', 'ИП Береке', 'КХ Нұрлы жол', 'ТОО Агро-Плюс'],
-                'region': ['Акмолинская', 'Туркестанская', 'Алматинская', 'Павлодарская'],
-                'Норматив': [15000, 15000, 15000, 15000],
-                'Сумма': [1500000, 300000, 45000000, 2000000]
-            })
-        
+        except:
+            # Если не вышло, пробуем метод для файлов, сохраненных из русскоязычного Excel
+            df = pd.read_csv(DATA_PATH, sep=';', encoding='cp1251')
+            
+        # Защита: если нужных колонок нет в файле, добавляем их автоматически
         if 'region' not in df.columns: df['region'] = 'Не указано'
         if 'Фермер' not in df.columns: df['Фермер'] = [f"Заявка #{i}" for i in range(len(df))]
+        if 'Сумма' not in df.columns: df['Сумма'] = 1500000
+        if 'Норматив' not in df.columns: df['Норматив'] = 15000
         return df
-    except:
-        return pd.DataFrame({'Фермер': ['Ошибка загрузки'], 'region': ['-'], 'Сумма': [0]})
+    else:
+        # Если папки data или файла нет физически
+        st.sidebar.error("⚠️ Файл data/features.csv не найден! Включен демо-режим.")
+        return pd.DataFrame({
+            'Фермер': ['КХ Болашак', 'ИП Береке', 'КХ Нұрлы жол', 'ТОО Агро-Плюс'],
+            'region': ['Акмолинская', 'Туркестанская', 'Алматинская', 'Павлодарская'],
+            'Норматив': [15000, 15000, 15000, 15000],
+            'Сумма': [1500000, 300000, 45000000, 2000000]
+        })
 
 model, is_ml_active = load_ml_assets()
 raw_df = load_data()
@@ -52,7 +60,7 @@ def get_stable_score(row):
     base = 100
     if row.get('Сумма', 0) > 10000000: base -= 35
     if row.get('region') == 'Туркестанская': base -= 10
-    deterministic_variance = hash(str(row['Фермер'])) % 15 - 7
+    deterministic_variance = hash(str(row.get('Фермер', '1'))) % 15 - 7
     return max(10, min(99, base + deterministic_variance))
 
 def get_recommendations(score):
@@ -80,6 +88,7 @@ with st.sidebar:
     
     st.divider()
     selected_farmer_name = st.selectbox("👨‍🌾 Выбор фермера:", filtered_df['Фермер'].tolist())
+    # Берем данные выбранного фермера
     farmer_data = filtered_df[filtered_df['Фермер'] == selected_farmer_name].iloc[0]
     
     st.divider()
@@ -101,8 +110,7 @@ with tab1:
     st.dataframe(
         filtered_df[['Фермер', 'region', 'Сумма', 'FutureScore']]
         .sort_values('FutureScore', ascending=False)
-        .style.background_gradient(subset=['FutureScore'], cmap='RdYlGn'),
-        width="stretch" # ИСПРАВЛЕНО ЗДЕСЬ
+        .style.background_gradient(subset=['FutureScore'], cmap='RdYlGn')
     )
 
 with tab2:
@@ -132,7 +140,7 @@ with tab2:
             totals={"marker":{"color":"#3498db"}}
         ))
         fig.update_layout(title="Как сформировался балл (Explainable AI)", height=400)
-        st.plotly_chart(fig, width="stretch") # ИСПРАВЛЕНО ЗДЕСЬ
+        st.plotly_chart(fig)
 
     with col_adv:
         st.markdown("### 📝 Рекомендации ИИ")
@@ -140,7 +148,7 @@ with tab2:
         st.error(f"**Комиссии:** {comm_rec}")
         st.success(f"**Фермеру:** {farm_rec}")
         
-        if st.button("📄 Сгенерировать отчет", width="stretch"): # ИСПРАВЛЕНО ЗДЕСЬ
+        if st.button("📄 Сгенерировать отчет"):
             st.toast("Отчет формируется...")
             time.sleep(1)
             st.write("Отчет готов для выгрузки в PDF.")
@@ -158,5 +166,5 @@ with tab4:
     img = st.file_uploader("Загрузите фото фермы", type=['jpg', 'png'])
     if img:
         with st.spinner("ИИ сканирует объекты..."): time.sleep(2)
-        st.image(img, width="stretch") # ИСПРАВЛЕНО ЗДЕСЬ
+        st.image(img)
         st.error("🚨 Внимание: На фото обнаружено только 15 голов скота из 100 заявленных!")
