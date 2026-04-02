@@ -195,15 +195,13 @@ def load_data() -> pd.DataFrame:
     return df
 
 
-def calculate_ai_score(row: pd.Series) -> int:
-    if "FutureScore" in row and pd.notna(row["FutureScore"]):
-        return int(row["FutureScore"])
-
-    base = float(row.get("district_historical_score", 0.8)) * 70
-    penalty = float(row.get("climate_risk", 0.5)) * 30
-    bonus_breed = 15 if int(row.get("is_breeding", 0)) == 1 else 0
-    bonus_sel = 10 if int(row.get("is_selection", 0)) == 1 else 0
-
+def calculate_ai_score(row):
+    # ... (проверка демо-данных)
+    base = row.get('district_historical_score', 0.8) * 70  # Макс 70
+    penalty = row.get('climate_risk', 0.5) * 30           # Минус до 30
+    bonus_breed = 15 if row.get('is_breeding', 0) == 1 else 0
+    bonus_sel = 10 if row.get('is_selection', 0) == 1 else 0
+    
     final_score = base - penalty + bonus_breed + bonus_sel
     return max(10, min(99, int(final_score)))
 
