@@ -83,8 +83,3 @@ streamlit run app.py
 * **Zhaniya Nurlankyzy** — Data Strategy, Data Cleaning, EDA & Legal Logic Mapping.
 * **Zhangirkhan Aigarayev** — ML Engineering (XGBoost), CV Integration (YOLOv8) & Explainable AI (SHAP).
 * **Akzeinep Erkin** — UI/UX Lead, Cloud Deployment & Frontend Development.
-
----
-*Developed with 💡 and 🚜 for a more transparent agriculture in Kazakhstan. April 2026.*
-
----
