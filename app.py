@@ -28,29 +28,48 @@ def load_ml_assets():
 
 @st.cache_data
 def load_data():
-    if os.path.exists(DATA_PATH):
+    # Проверяем, существует ли файл вообще
+    if not os.path.exists(DATA_PATH):
+        # Выводим подсказку с текущей папкой, чтобы понять, где сервер ищет файл
+        st.sidebar.error(f"❌ Файл '{DATA_PATH}' физически не найден!")
+        st.sidebar.info(f"Текущая рабочая директория сервера: {os.getcwd()}")
+        st.sidebar.warning("Включен демо-режим.")
+        return create_mock_data()
+
+    # Если файл есть, пытаемся его прочитать тремя разными способами
+    try:
+        # Попытка 1: Стандартный CSV (запятая, utf-8)
+        df = pd.read_csv(DATA_PATH)
+    except Exception as e1:
         try:
-            # Сначала пробуем стандартный метод (запятая)
-            df = pd.read_csv(DATA_PATH)
-        except:
-            # Если не вышло, пробуем метод для файлов, сохраненных из русскоязычного Excel
+            # Попытка 2: Русский Excel (точка с запятой, cp1251)
             df = pd.read_csv(DATA_PATH, sep=';', encoding='cp1251')
-            
-        # Защита: если нужных колонок нет в файле, добавляем их автоматически
-        if 'region' not in df.columns: df['region'] = 'Не указано'
-        if 'Фермер' not in df.columns: df['Фермер'] = [f"Заявка #{i}" for i in range(len(df))]
-        if 'Сумма' not in df.columns: df['Сумма'] = 1500000
-        if 'Норматив' not in df.columns: df['Норматив'] = 15000
-        return df
-    else:
-        # Если папки data или файла нет физически
-        st.sidebar.error("⚠️ Файл data/features.csv не найден! Включен демо-режим.")
-        return pd.DataFrame({
-            'Фермер': ['КХ Болашак', 'ИП Береке', 'КХ Нұрлы жол', 'ТОО Агро-Плюс'],
-            'region': ['Акмолинская', 'Туркестанская', 'Алматинская', 'Павлодарская'],
-            'Норматив': [15000, 15000, 15000, 15000],
-            'Сумма': [1500000, 300000, 45000000, 2000000]
-        })
+        except Exception as e2:
+            try:
+                # Попытка 3: Excel UTF-8 с BOM (частая проблема Windows)
+                df = pd.read_csv(DATA_PATH, sep=';', encoding='utf-8-sig')
+            except Exception as e3:
+                # Если ничего не помогло, выводим техническую ошибку на экран
+                st.sidebar.error("❌ Файл найден, но pandas не может его прочитать!")
+                st.sidebar.code(f"Ошибка 1: {e1}\nОшибка 2: {e2}")
+                return create_mock_data()
+        
+    # Проверяем и восстанавливаем нужные колонки, если их вдруг нет
+    if 'region' not in df.columns: df['region'] = 'Не указано'
+    if 'Фермер' not in df.columns: df['Фермер'] = [f"Заявка #{i}" for i in range(len(df))]
+    if 'Сумма' not in df.columns: df['Сумма'] = 0
+    
+    st.sidebar.success(f"✅ Данные загружены! ({len(df)} строк)")
+    return df
+
+def create_mock_data():
+    """Вспомогательная функция для генерации демо-данных"""
+    return pd.DataFrame({
+        'Фермер': ['КХ Болашак', 'ИП Береке', 'КХ Нұрлы жол'],
+        'region': ['Акмолинская', 'Туркестанская', 'Алматинская'],
+        'Сумма': [1500000, 300000, 45000000],
+        'FutureScore': [85, 42, 15]
+    })
 
 model, is_ml_active = load_ml_assets()
 raw_df = load_data()
