@@ -225,33 +225,45 @@ with tab3:
 
 with tab4:
     st.header("📸 Оптический Анти-фрод (YOLOv8)")
-    img_file = st.file_uploader("Загрузить фото/видео кадр", type=['jpg', 'png', 'jpeg'])
     
-    if img_file:
-        declared_cows = int(farmer_data.get('Поголовье', 0))
-        col_img, col_res = st.columns(2)
+    # ПРОВЕРКА ЗАВИСИМОСТЕЙ ПРЯМО НА ЭКРАНЕ
+    if not YOLO_AVAILABLE:
+        st.error("❌ Библиотека 'ultralytics' не установлена. Проверьте requirements.txt!")
+    elif not os.path.exists(YOLO_MODEL_PATH):
+        st.error(f"❌ Файл весов '{YOLO_MODEL_PATH}' не найден на GitHub. Загрузите его в корень репозитория!")
+    else:
+        st.success("✅ Нейросеть YOLOv8 готова к работе.")
         
-        with col_img:
-            image = Image.open(img_file)
-            st.image(image, caption="Оригинал")
+        img_file = st.file_uploader("Загрузить фото/видео кадр", type=['jpg', 'png', 'jpeg'])
+        
+        if img_file:
+            declared_cows = int(farmer_data.get('Поголовье', 0))
+            col_img, col_res = st.columns(2)
             
-        with col_res:
-            if yolo_model:
+            with col_img:
+                image = Image.open(img_file)
+                st.image(image, caption="Оригинал")
+                
+            with col_res:
                 with st.spinner("Нейросеть сканирует объекты..."):
-                    results = yolo_model(image)
+                    # Загружаем модель (кешировано)
+                    model = YOLO(YOLO_MODEL_PATH)
+                    results = model(image)
+                    
+                    # Считаем: 17=horse, 18=sheep, 19=cow
                     detected_count = sum(1 for box in results[0].boxes if int(box.cls[0]) in [17, 18, 19])
                     
+                    # Отрисовка
                     res_img = results[0].plot()
-                    col_img.image(res_img, caption="Результат CV-сканирования")
+                    st.image(res_img, caption="Результат детекции")
                     
-                    st.subheader("📊 Результат детекции:")
-                    st.write(f"📄 Заявлено: **{declared_cows} голов**.")
-                    st.write(f"🐄 Обнаружено: **{detected_count} голов**.")
+                    st.subheader("📊 Итог проверки:")
+                    st.write(f"📄 Заявлено: **{declared_cows}**")
+                    st.write(f"🐄 Найдено: **{detected_count}**")
                     
-                    ratio = detected_count / declared_cows if declared_cows > 0 else 0
-                    if ratio < 0.3: st.error(f"🚨 **ФРОД!** Обнаружено лишь {int(ratio*100)}% скота.")
-                    elif ratio < 0.8: st.warning("⚠️ Частичное расхождение.")
-                    elif ratio > 1.5: st.warning("⚠️ Аномалия. Скота больше заявленного.")
-                    else: st.success("✅ Поголовье подтверждено.")
-            else:
-                st.error("❌ Файл yolov8n.pt не найден или не установлена библиотека. Включите ultralytics в requirements.txt!")
+                    if declared_count > 0:
+                        ratio = detected_count / declared_count
+                        if ratio < 0.3:
+                            st.error(f"🚨 ФРОД! Подтверждено только {int(ratio*100)}% поголовья.")
+                        else:
+                            st.success("✅ Визуальный контроль пройден.")
