@@ -12,7 +12,7 @@ st.set_page_config(page_title="FutureScore | МСХ РК", page_icon="🌾", lay
 # --- 2. ПУТИ К ФАЙЛАМ ---
 DATA_PATH = 'features.csv'
 MODEL_PATH = 'futurescore_model_pro.pkl'
-ARTIFACTS_PATH = 'data_pipeline_artifacts_pro (1).pkl'
+ARTIFACTS_PATH = 'data_pipeline_artifacts_pro.pkl'
 
 # --- 3. БЕЗОПАСНАЯ ЗАГРУЗКА ДАННЫХ И МОДЕЛЕЙ ---
 @st.cache_resource
