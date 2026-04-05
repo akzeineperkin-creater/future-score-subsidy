@@ -15,13 +15,14 @@ import streamlit as st
 # ─────────────────────────────────────────────────────────────────────────────
 #  ОБЩИЙ CSV-ФАЙЛ (синхронизация с фермером)
 # ─────────────────────────────────────────────────────────────────────────────
-CSV_PATH = "features_pro.csv"
+CSV_PATH = "data/applications.csv"
 
 def ensure_csv_exists():
     os.makedirs("data", exist_ok=True)
     if not os.path.exists(CSV_PATH):
         cols = [
-            "farm_name","bin","region","livestock","deaths","death_rate",
+            "farm_name","bin","iin","email","phone","region",
+            "livestock","hectares","deaths","death_rate",
             "years_work","requested_amount","score","shap_values","feature_names",
             "status","submitted_at","reviewed_by","reviewed_at","review_comment",
         ]
@@ -1163,6 +1164,10 @@ def main():
                 amount_val   = _safe_float(frow.get("requested_amount", 0))
                 livestock_v  = _safe_int(frow.get("livestock", frow.get("cows_count", 0)))
                 deaths_v     = _safe_int(frow.get("deaths", 0))
+                hectares_v   = _safe_float(frow.get("hectares", 0.0))
+                iin_v        = str(frow.get("iin", "—")) if str(frow.get("iin", "")) not in ("", "nan", "None") else "—"
+                email_v      = str(frow.get("email", "—")) if str(frow.get("email", "")) not in ("", "nan", "None") else "—"
+                phone_v      = str(frow.get("phone", "—")) if str(frow.get("phone", "")) not in ("", "nan", "None") else "—"
 
                 status_map = {
                     "pending":  "⏳ На рассмотрении",
@@ -1184,9 +1189,14 @@ def main():
                         st.markdown("**📋 Данные хозяйства**")
                         st.write(f"🏢 Хозяйство: **{farm_name}**")
                         st.write(f"🔢 БИН: `{bin_val}`")
+                        st.write(f"🪪 ИИН: `{iin_v}`")
                         st.write(f"📍 Регион: {region}")
+                        st.write(f"📧 Email: {email_v}")
+                        st.write(f"📞 Телефон: {phone_v}")
                         st.write(f"🐄 Поголовье: **{livestock_v}** гол.")
                         st.write(f"💀 Падёж: **{deaths_v}** гол.")
+                        if hectares_v > 0:
+                            st.write(f"🌾 Площадь угодий: **{hectares_v:.1f}** га")
                         submitted_str = submitted_at[:16].replace("T", " ")
                         st.write(f"📅 Подано: {submitted_str}")
 

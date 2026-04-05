@@ -233,6 +233,7 @@ def main():
     with tab_form:
         with st.form("farmer_application_form"):
             with st.expander("📌 Реквизиты хозяйства", expanded=True):
+                # Строка 1: название, БИН, регион
                 col1, col2, col3 = st.columns([2, 1.5, 1.5])
                 with col1:
                     farm_name = st.text_input("Название хозяйства", placeholder='ТОО "АгроПром"...', key="f_name")
@@ -241,14 +242,25 @@ def main():
                 with col3:
                     region = st.selectbox("Регион", REGIONS, key="f_reg")
 
+                # Строка 2: ИИН, email, телефон
+                col4, col5, col6 = st.columns([1.5, 2, 1.5])
+                with col4:
+                    iin_input = st.text_input("ИИН руководителя (12 цифр)", max_chars=12, key="f_iin")
+                with col5:
+                    email_input = st.text_input("Электронная почта", placeholder="example@mail.kz", key="f_email")
+                with col6:
+                    phone_input = st.text_input("Номер телефона", placeholder="+7", key="f_phone")
+
             with st.expander("📊 Производственные показатели", expanded=True):
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 with c1:
                     livestock = st.number_input("Общее поголовье (голов)", min_value=1, value=100, key="f_live")
                 with c2:
                     deaths = st.number_input("Падеж за период (головы)", min_value=0, value=2, key="f_death")
                 with c3:
                     years_work = st.number_input("Стаж работы (лет)", min_value=0, value=5, key="f_years")
+                with c4:
+                    hectares = st.number_input("Площадь угодий (гектар)", min_value=0.1, step=0.1, value=10.0, key="f_hectares")
 
             with st.expander("💰 Запрос субсидий", expanded=True):
                 requested_amount = st.number_input("Сумма субсидии (₸)", min_value=100000, step=100000, key="f_amount")
@@ -261,6 +273,14 @@ def main():
                 errors.append("Укажите название хозяйства.")
             if not validate_bin(bin_input):
                 errors.append("БИН должен содержать ровно 12 цифр.")
+            if not re.fullmatch(r"\d{12}", iin_input.strip()):
+                errors.append("ИИН должен содержать ровно 12 цифр.")
+            if "@" not in email_input.strip():
+                errors.append("Email должен содержать символ «@».")
+            if not phone_input.strip():
+                errors.append("Укажите номер телефона.")
+            if hectares <= 0:
+                errors.append("Площадь угодий должна быть больше 0 гектар.")
             if deaths > livestock:
                 errors.append("Количество падежа не может превышать поголовье.")
             if requested_amount <= 0:
@@ -311,8 +331,12 @@ def main():
                 app_record = {
                     "farm_name":        farm_name.strip(),
                     "bin":              bin_input.strip(),
+                    "iin":              iin_input.strip(),
+                    "email":            email_input.strip(),
+                    "phone":            phone_input.strip(),
                     "region":           region,
                     "livestock":        int(livestock),
+                    "hectares":         round(float(hectares), 2),
                     "deaths":           int(deaths),
                     "death_rate":       round(deaths / max(livestock, 1), 4),
                     "years_work":       int(years_work),
@@ -337,7 +361,8 @@ def main():
                     _CSV = "data/applications.csv"
                     _os.makedirs("data", exist_ok=True)
                     _cols = [
-                        "farm_name","bin","region","livestock","deaths","death_rate",
+                        "farm_name","bin","iin","email","phone",
+                        "region","livestock","hectares","deaths","death_rate",
                         "years_work","requested_amount","score","shap_values","feature_names",
                         "status","submitted_at","reviewed_by","reviewed_at","review_comment",
                     ]
@@ -353,15 +378,19 @@ def main():
 
                 with st.expander("📄 Сводка заявки (для печати)", expanded=False):
                     summary_df = pd.DataFrame([{
-                        "Хозяйство":   farm_name,
-                        "БИН":         bin_input,
-                        "Регион":      region,
-                        "Поголовье":   livestock,
-                        "Падёж":       deaths,
-                        "Сумма (₸)":   f"{requested_amount:,}",
-                        "Балл":        score,
-                        "Статус":      "На рассмотрении",
-                        "Дата подачи": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "Хозяйство":       farm_name,
+                        "БИН":             bin_input,
+                        "ИИН":             iin_input,
+                        "Email":           email_input,
+                        "Телефон":         phone_input,
+                        "Регион":          region,
+                        "Поголовье":       livestock,
+                        "Площадь (га)":    hectares,
+                        "Падёж":           deaths,
+                        "Сумма (₸)":       f"{requested_amount:,}",
+                        "Балл":            score,
+                        "Статус":          "На рассмотрении",
+                        "Дата подачи":     datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
                     }]).T
                     summary_df.columns = ["Значение"]
                     st.dataframe(summary_df, use_container_width=True)
