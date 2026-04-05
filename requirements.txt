@@ -5,6 +5,8 @@ joblib
 plotly
 xgboost
 scikit-learn
+shap
+matplotlib
 ultralytics
 opencv-python-headless
 Pillow
