@@ -71,6 +71,8 @@ REGIONS = [
 ]
 REGION_MAP = {r: i for i, r in enumerate(REGIONS)}
 
+CSV_PATH = "data/applications.csv"
+
 
 # ─────────────────────────────────────────────
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -152,6 +154,59 @@ def status_badge(status: str) -> str:
     return mapping.get(status, status)
 
 
+def sync_statuses_from_csv():
+    """
+    ИСПРАВЛЕНИЕ #3: Синхронизация статусов фермера из CSV.
+
+    Использует пару (bin + submitted_at) как уникальный ключ.
+    Значения обрезаются (.strip()) перед сравнением — это устраняет
+    ошибки из-за пробелов/переносов при записи/чтении CSV.
+
+    Если хотя бы один статус изменился относительно session_state —
+    вызывает st.rerun(), чтобы фермер увидел обновление немедленно.
+    """
+    import os
+    if not os.path.exists(CSV_PATH):
+        return
+
+    try:
+        csv_df = pd.read_csv(CSV_PATH)
+        # Нормализуем ключевые поля — strip() убирает пробелы и переносы
+        csv_df["_bin"] = csv_df["bin"].astype(str).str.strip()
+        csv_df["_sat"] = csv_df["submitted_at"].astype(str).str.strip()
+
+        updated = False
+        for app in st.session_state.db_apps:
+            app_bin = str(app.get("bin", "")).strip()
+            app_sat = str(app.get("submitted_at", "")).strip()
+
+            mask = (csv_df["_bin"] == app_bin) & (csv_df["_sat"] == app_sat)
+            if not mask.any():
+                continue
+
+            row = csv_df[mask].iloc[0]
+            new_status  = str(row.get("status", app["status"])).strip()
+            new_rev_by  = row.get("reviewed_by", None)
+            new_rev_at  = row.get("reviewed_at", None)
+            new_comment = row.get("review_comment", None)
+
+            # Обновляем только если статус действительно изменился
+            if app["status"] != new_status:
+                app["status"]         = new_status
+                app["reviewed_by"]    = new_rev_by  if pd.notna(new_rev_by)  else None
+                app["reviewed_at"]    = new_rev_at  if pd.notna(new_rev_at)  else None
+                app["review_comment"] = new_comment if pd.notna(new_comment) else None
+                updated = True
+
+        # Перезагружаем страницу только если что-то изменилось
+        if updated:
+            st.rerun()
+
+    except Exception:
+        # Молча пропускаем ошибки чтения — не ломаем UI фермера
+        pass
+
+
 # ─────────────────────────────────────────────
 #  ГЛАВНАЯ ФУНКЦИЯ — вызывается из main.py
 # ─────────────────────────────────────────────
@@ -196,26 +251,10 @@ def main():
     if "last_result" not in st.session_state:
         st.session_state.last_result = None
 
-    # ── Синхронизация статусов из CSV → db_apps ──────────────────────────────
-    # Аудитор меняет статус в CSV; фермер должен видеть актуальный статус.
-    try:
-        import os as _os, pandas as _pd
-        _CSV = "data/applications.csv"
-        if _os.path.exists(_CSV):
-            _csv_df = _pd.read_csv(_CSV)
-            for _app in st.session_state.db_apps:
-                _mask = (
-                    (_csv_df["bin"].astype(str) == str(_app["bin"])) &
-                    (_csv_df["submitted_at"].astype(str) == str(_app["submitted_at"]))
-                )
-                if _mask.any():
-                    _row = _csv_df[_mask].iloc[0]
-                    _app["status"]         = str(_row.get("status", _app["status"]))
-                    _app["reviewed_by"]    = _row.get("reviewed_by", None)
-                    _app["reviewed_at"]    = _row.get("reviewed_at", None)
-                    _app["review_comment"] = _row.get("review_comment", None)
-    except Exception:
-        pass
+    # ── ИСПРАВЛЕНИЕ #3: Синхронизация статусов из CSV ────────────────────────
+    # Вызываем при каждом рендере. Если аудитор изменил статус в CSV,
+    # фермер увидит обновление на следующем рендере (без ручной перезагрузки).
+    sync_statuses_from_csv()
 
     # ── ЗАГОЛОВОК ─────────────────────────────
     st.markdown("""
@@ -233,7 +272,6 @@ def main():
     with tab_form:
         with st.form("farmer_application_form"):
             with st.expander("📌 Реквизиты хозяйства", expanded=True):
-                # Строка 1: название, БИН, регион
                 col1, col2, col3 = st.columns([2, 1.5, 1.5])
                 with col1:
                     farm_name = st.text_input("Название хозяйства", placeholder='ТОО "АгроПром"...', key="f_name")
@@ -242,7 +280,6 @@ def main():
                 with col3:
                     region = st.selectbox("Регион", REGIONS, key="f_reg")
 
-                # Строка 2: ИИН, email, телефон
                 col4, col5, col6 = st.columns([1.5, 2, 1.5])
                 with col4:
                     iin_input = st.text_input("ИИН руководителя (12 цифр)", max_chars=12, key="f_iin")
@@ -328,6 +365,9 @@ def main():
                 st.pyplot(fig)
                 plt.close(fig)
 
+                # Нормализованный timestamp без микросекунд — стабильный ключ для CSV
+                submitted_at_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
                 app_record = {
                     "farm_name":        farm_name.strip(),
                     "bin":              bin_input.strip(),
@@ -345,7 +385,7 @@ def main():
                     "shap_values":      shap_vals[0].tolist(),
                     "feature_names":    FEATURE_NAMES,
                     "status":           "pending",
-                    "submitted_at":     datetime.datetime.now().isoformat(),
+                    "submitted_at":     submitted_at_str,
                     "reviewed_by":      None,
                     "reviewed_at":      None,
                     "review_comment":   None,
@@ -357,8 +397,7 @@ def main():
 
                 # ── Синхронизация с CSV (для кабинета аудитора) ────────────
                 try:
-                    import os as _os, pandas as _pd
-                    _CSV = "data/applications.csv"
+                    import os as _os
                     _os.makedirs("data", exist_ok=True)
                     _cols = [
                         "farm_name","bin","iin","email","phone",
@@ -367,12 +406,12 @@ def main():
                         "status","submitted_at","reviewed_by","reviewed_at","review_comment",
                     ]
                     _row = {k: app_record.get(k, "") for k in _cols}
-                    if _os.path.exists(_CSV):
-                        _df = _pd.read_csv(_CSV)
+                    if _os.path.exists(CSV_PATH):
+                        _df = pd.read_csv(CSV_PATH)
                     else:
-                        _df = _pd.DataFrame(columns=_cols)
-                    _df = _pd.concat([_df, _pd.DataFrame([_row])], ignore_index=True)
-                    _df.to_csv(_CSV, index=False)
+                        _df = pd.DataFrame(columns=_cols)
+                    _df = pd.concat([_df, pd.DataFrame([_row])], ignore_index=True)
+                    _df.to_csv(CSV_PATH, index=False)
                 except Exception as _e:
                     st.warning(f"⚠️ Не удалось сохранить в CSV: {_e}")
 
@@ -431,10 +470,16 @@ def main():
                     with c3:
                         st.metric("Сумма", f"{app['requested_amount']:,} ₸")
                     with c4:
-                        badge_map = {"pending": "⏳ На рассмотрении", "approved": "✅ Одобрена", "rejected": "❌ Отклонена"}
-                        st.markdown(f'**Статус:** {badge_map.get(app["status"], app["status"])}', unsafe_allow_html=True)
+                        badge_map = {
+                            "pending":  "⏳ На рассмотрении",
+                            "approved": "✅ Одобрена",
+                            "rejected": "❌ Отклонена",
+                        }
+                        st.markdown(f'**Статус:** {badge_map.get(app["status"], app["status"])}')
                         if app.get("review_comment"):
                             st.caption(f"Комментарий: {app['review_comment']}")
+                        if app.get("reviewed_by"):
+                            st.caption(f"Инспектор: {app['reviewed_by']}")
 
                     with st.expander(f"🔍 Детали скоринга заявки #{idx}"):
                         col_d1, col_d2 = st.columns(2)
@@ -454,7 +499,8 @@ def main():
                                 ax2.set_facecolor("#f8faf9")
                                 fig2.patch.set_facecolor("#f8faf9")
                                 colors2 = ["#c0392b" if v < 0 else "#27ae60" for v in shap_arr]
-                                ax2.barh(app["feature_names"], shap_arr, color=colors2, edgecolor="none", height=0.5)
+                                ax2.barh(app["feature_names"], shap_arr, color=colors2,
+                                         edgecolor="none", height=0.5)
                                 ax2.axvline(0, color="#888", lw=0.8, ls="--")
                                 ax2.set_title("SHAP", fontsize=9)
                                 plt.tight_layout()
@@ -521,7 +567,6 @@ def main():
             st.write(f"💰 {lr['requested_amount']:,} ₸")
 
         st.divider()
-       
 
         if st.button("🗑️ Сбросить все заявки (DEV)", type="secondary"):
             st.session_state.db_apps            = []
