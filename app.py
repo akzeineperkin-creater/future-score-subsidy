@@ -444,6 +444,11 @@ def main():
     if "audit_log" not in st.session_state:
         st.session_state.audit_log = []
 
+    # Локальный кэш решений по заявкам фермеров: ключ = "bin__submitted_at", значение = "approved"/"rejected"
+    # Используется как источник истины для мгновенного обновления UI (до следующего чтения CSV)
+    if "farmer_decisions" not in st.session_state:
+        st.session_state.farmer_decisions = {}
+
 
     # ─────────────────────────────────────────────────────────────────────────
     #  ПЕРЕСЧЁТ SCORE
@@ -544,11 +549,10 @@ def main():
         rejected_n = sum(1 for v in st.session_state.statuses.values() if v == "❌ Отклонено")
         violations_n = int((df_all["Падёж %"] > MORTALITY_LIMIT).sum())
 
-        # Считаем одобренные заявки фермеров для сайдбара
-        _f_sidebar = load_farmer_applications()
-        farmer_approved_n = 0
-        if not _f_sidebar.empty and "status" in _f_sidebar.columns:
-            farmer_approved_n = int((_f_sidebar["status"] == "approved").sum())
+        # Считаем одобренные заявки фермеров из кэша решений session_state
+        farmer_approved_n = sum(
+            1 for v in st.session_state.farmer_decisions.values() if v == "approved"
+        )
 
         st.markdown(f"""
         <div style="font-size:13px; line-height:2.0;">
@@ -601,20 +605,35 @@ def main():
 
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  ФИНАНСОВЫЕ KPI — учитываем заявки фермеров
+    #  ЗАГРУЗКА ЗАЯВОК ФЕРМЕРОВ — один раз на весь рендер страницы
+    #  Поверх CSV применяем session_state.farmer_decisions как источник истины:
+    #  это гарантирует мгновенное обновление UI сразу после нажатия кнопки,
+    #  не дожидаясь повторного чтения файла с диска.
     # ─────────────────────────────────────────────────────────────────────────
-    # Сумма одобренных демо-заявок
+    _all_farmer_df = load_farmer_applications()
+
+    if not _all_farmer_df.empty and "status" in _all_farmer_df.columns:
+        if st.session_state.farmer_decisions:
+            def _apply_farmer_decision(row):
+                key = f"{row['bin']}__{row['submitted_at']}"
+                return st.session_state.farmer_decisions.get(key, row["status"])
+            _all_farmer_df = _all_farmer_df.copy()
+            _all_farmer_df["status"] = _all_farmer_df.apply(_apply_farmer_decision, axis=1)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  ФИНАНСОВЫЕ KPI — учитываем и реестр, и заявки фермеров
+    # ─────────────────────────────────────────────────────────────────────────
+    # 1) Сумма одобренных из демо-реестра
     approved_sum = sum(
         st.session_state.df_raw.loc[i, "Причит. сумма"]
         for i, v in st.session_state.statuses.items()
         if v == "✅ Одобрено" and i in st.session_state.df_raw.index
     )
-    # + Сумма одобренных заявок фермеров из CSV
-    _farmer_df_budget = load_farmer_applications()
+    # 2) + Сумма одобренных заявок фермеров (с наложенным кэшем решений)
     farmer_approved_sum = 0.0
-    if not _farmer_df_budget.empty and "requested_amount" in _farmer_df_budget.columns:
+    if not _all_farmer_df.empty and "requested_amount" in _all_farmer_df.columns:
         farmer_approved_sum = (
-            _farmer_df_budget[_farmer_df_budget["status"] == "approved"]["requested_amount"]
+            _all_farmer_df[_all_farmer_df["status"] == "approved"]["requested_amount"]
             .apply(pd.to_numeric, errors="coerce")
             .fillna(0)
             .sum()
@@ -1050,7 +1069,7 @@ def main():
 
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  ТАБ 4 — ЗАЯВКИ ФЕРМЕРОВ (ИСПРАВЛЕННЫЙ)
+    #  ТАБ 4 — ЗАЯВКИ ФЕРМЕРОВ
     # ══════════════════════════════════════════════════════════════════════════
     with tab_farmer:
         st.subheader("🌾 Заявки от фермеров")
@@ -1062,9 +1081,25 @@ def main():
         col_ref, _ = st.columns([1, 4])
         with col_ref:
             if st.button("🔄 Обновить список", use_container_width=True):
+                # При ручном обновлении сбрасываем кэш и читаем CSV заново
+                st.session_state.farmer_decisions = {}
                 st.rerun()
 
-        farmer_df = load_farmer_applications()
+        # Используем уже загруженный DataFrame с наложенным кэшем решений
+        farmer_df = _all_farmer_df.copy() if not _all_farmer_df.empty else pd.DataFrame()
+
+        # ── Вспомогательные функции парсинга (определяем вне цикла) ────────────
+        def _safe_int(val, default=0):
+            try:
+                return int(float(str(val))) if str(val) not in ("", "nan", "None") else default
+            except (ValueError, TypeError):
+                return default
+
+        def _safe_float(val, default=0.0):
+            try:
+                return float(str(val)) if str(val) not in ("", "nan", "None") else default
+            except (ValueError, TypeError):
+                return default
 
         if farmer_df.empty:
             st.info(
@@ -1079,20 +1114,20 @@ def main():
             rejected_f = int((farmer_df["status"] == "rejected").sum())
 
             fm1, fm2, fm3, fm4 = st.columns(4)
-            fm1.metric("Всего заявок",       total_f)
-            fm2.metric("⏳ На рассмотрении",  pending_f)
-            fm3.metric("✅ Одобрено",         approved_f)
-            fm4.metric("❌ Отклонено",        rejected_f)
+            fm1.metric("Всего заявок",      total_f)
+            fm2.metric("⏳ На рассмотрении", pending_f)
+            fm3.metric("✅ Одобрено",        approved_f)
+            fm4.metric("❌ Отклонено",       rejected_f)
 
             st.divider()
 
-            # ── Разделяем на pending и решённые ──────────────────────────────
+            # ── Разделяем: источник истины — статус из farmer_df (с кэшем) ───
             pending_farmer_df = farmer_df[farmer_df["status"] == "pending"].copy()
             decided_farmer_df = farmer_df[farmer_df["status"].isin(["approved", "rejected"])].copy()
 
             # ── СЕКЦИЯ: ожидают решения ───────────────────────────────────────
             if pending_farmer_df.empty:
-                st.info("✅ Все заявки рассмотрены.")
+                st.success("✅ Все заявки рассмотрены.")
             else:
                 st.markdown(f"#### ⏳ Ожидают решения ({len(pending_farmer_df)})")
 
@@ -1101,31 +1136,18 @@ def main():
                     submitted_at = str(frow.get("submitted_at", ""))
                     farm_name    = str(frow.get("farm_name", "—"))
                     region       = str(frow.get("region", "—"))
-                    status_val   = str(frow.get("status", "pending"))
+                    decision_key = f"{bin_val}__{submitted_at}"
 
-                    def _safe_int(val, default=0):
-                        try:
-                            return int(float(str(val))) if str(val) not in ("", "nan", "None") else default
-                        except (ValueError, TypeError):
-                            return default
+                    score_val   = _safe_int(frow.get("score", 0))
+                    amount_val  = _safe_float(frow.get("requested_amount", 0))
+                    livestock_v = _safe_int(frow.get("livestock", frow.get("cows_count", 0)))
+                    deaths_v    = _safe_int(frow.get("deaths", 0))
+                    hectares_v  = _safe_float(frow.get("hectares", 0.0))
+                    iin_v       = str(frow.get("iin", "—"))   if str(frow.get("iin", ""))   not in ("", "nan", "None") else "—"
+                    email_v     = str(frow.get("email", "—")) if str(frow.get("email", "")) not in ("", "nan", "None") else "—"
+                    phone_v     = str(frow.get("phone", "—")) if str(frow.get("phone", "")) not in ("", "nan", "None") else "—"
 
-                    def _safe_float(val, default=0.0):
-                        try:
-                            return float(str(val)) if str(val) not in ("", "nan", "None") else default
-                        except (ValueError, TypeError):
-                            return default
-
-                    score_val    = _safe_int(frow.get("score", 0))
-                    amount_val   = _safe_float(frow.get("requested_amount", 0))
-                    livestock_v  = _safe_int(frow.get("livestock", frow.get("cows_count", 0)))
-                    deaths_v     = _safe_int(frow.get("deaths", 0))
-                    hectares_v   = _safe_float(frow.get("hectares", 0.0))
-                    iin_v        = str(frow.get("iin", "—")) if str(frow.get("iin", "")) not in ("", "nan", "None") else "—"
-                    email_v      = str(frow.get("email", "—")) if str(frow.get("email", "")) not in ("", "nan", "None") else "—"
-                    phone_v      = str(frow.get("phone", "—")) if str(frow.get("phone", "")) not in ("", "nan", "None") else "—"
-
-                    score_icon   = "🟢" if score_val > 65 else ("🟡" if score_val >= 40 else "🔴")
-
+                    score_icon = "🟢" if score_val > 65 else ("🟡" if score_val >= 40 else "🔴")
                     expander_label = (
                         f"⏳  {farm_name}  ·  БИН: {bin_val}  ·  {region}  ·  "
                         f"{score_icon} Балл: {score_val}  ·  {amount_val:,.0f} ₸"
@@ -1146,8 +1168,7 @@ def main():
                             st.write(f"💀 Падёж: **{deaths_v}** гол.")
                             if hectares_v > 0:
                                 st.write(f"🌾 Площадь угодий: **{hectares_v:.1f}** га")
-                            submitted_str = submitted_at[:16].replace("T", " ")
-                            st.write(f"📅 Подано: {submitted_str}")
+                            st.write(f"📅 Подано: {submitted_at[:16].replace('T', ' ')}")
 
                         with d2:
                             st.markdown("**📊 Скоринговый балл**")
@@ -1173,22 +1194,20 @@ def main():
 
                         with d3:
                             st.markdown("**✅ Решение аудитора**")
-
                             b_a, b_r = st.columns(2)
+
                             with b_a:
                                 if st.button("✅ Одобрить",
-                                             key=f"f_app_{bin_val}_{submitted_at}",
+                                             key=f"f_app_{decision_key}",
                                              type="primary",
                                              use_container_width=True):
+                                    # 1. Сохраняем в CSV
                                     update_application_status_in_csv(
                                         bin_val, submitted_at, "approved", full_name
                                     )
-                                    for _a in st.session_state.get("db_apps", []):
-                                        if str(_a.get("bin")) == bin_val and str(_a.get("submitted_at")) == submitted_at:
-                                            _a["status"] = "approved"
-                                            _a["reviewed_by"] = full_name
-                                            _a["reviewed_at"] = datetime.datetime.now().isoformat()
-                                    # Добавляем в журнал аудита
+                                    # 2. Мгновенно обновляем кэш session_state — источник истины для UI
+                                    st.session_state.farmer_decisions[decision_key] = "approved"
+                                    # 3. Журнал аудита
                                     st.session_state.audit_log.append({
                                         "Время":       datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                                         "Инспектор":   full_name,
@@ -1200,22 +1219,20 @@ def main():
                                         "Направление": "Из кабинета фермера",
                                         "Регион":      region,
                                     })
-                                    st.success("✅ Одобрено! Фермер увидит статус в своём кабинете.")
+                                    # 4. Перерисовываем страницу — заявка исчезнет из pending
                                     st.rerun()
 
                             with b_r:
                                 if st.button("❌ Отклонить",
-                                             key=f"f_rej_{bin_val}_{submitted_at}",
+                                             key=f"f_rej_{decision_key}",
                                              use_container_width=True):
+                                    # 1. Сохраняем в CSV
                                     update_application_status_in_csv(
                                         bin_val, submitted_at, "rejected", full_name
                                     )
-                                    for _a in st.session_state.get("db_apps", []):
-                                        if str(_a.get("bin")) == bin_val and str(_a.get("submitted_at")) == submitted_at:
-                                            _a["status"] = "rejected"
-                                            _a["reviewed_by"] = full_name
-                                            _a["reviewed_at"] = datetime.datetime.now().isoformat()
-                                    # Добавляем в журнал аудита
+                                    # 2. Мгновенно обновляем кэш session_state
+                                    st.session_state.farmer_decisions[decision_key] = "rejected"
+                                    # 3. Журнал аудита
                                     st.session_state.audit_log.append({
                                         "Время":       datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                                         "Инспектор":   full_name,
@@ -1227,7 +1244,7 @@ def main():
                                         "Направление": "Из кабинета фермера",
                                         "Регион":      region,
                                     })
-                                    st.error("❌ Отклонено. Фермер увидит статус в своём кабинете.")
+                                    # 4. Перерисовываем страницу — заявка исчезнет из pending
                                     st.rerun()
 
                             st.warning("⏳ Ожидает решения")
@@ -1235,27 +1252,28 @@ def main():
             # ── СЕКЦИЯ: уже рассмотренные (свёрнутая) ─────────────────────────
             if not decided_farmer_df.empty:
                 st.divider()
-                with st.expander(f"📁 Уже рассмотренные заявки ({len(decided_farmer_df)})", expanded=False):
+                with st.expander(
+                    f"📁 Уже рассмотренные заявки ({len(decided_farmer_df)})",
+                    expanded=False,
+                ):
                     for _, frow in decided_farmer_df.iterrows():
-                        status_val = str(frow.get("status", ""))
-                        icon       = "✅" if status_val == "approved" else "❌"
-                        farm_name  = str(frow.get("farm_name", "—"))
-                        bin_val    = str(frow.get("bin", ""))
-                        region     = str(frow.get("region", "—"))
+                        status_val   = str(frow.get("status", ""))
+                        icon         = "✅" if status_val == "approved" else "❌"
+                        farm_name    = str(frow.get("farm_name", "—"))
+                        bin_val      = str(frow.get("bin", ""))
+                        region       = str(frow.get("region", "—"))
                         submitted_at = str(frow.get("submitted_at", ""))
+                        amount_val   = _safe_float(frow.get("requested_amount", 0))
+                        score_val    = _safe_int(frow.get("score", 0))
 
-                        try:
-                            amount_val = float(str(frow.get("requested_amount", 0)))
-                        except (ValueError, TypeError):
-                            amount_val = 0.0
-
+                        # reviewed_by может быть в кэше или в CSV
+                        decision_key = f"{bin_val}__{submitted_at}"
                         rb = str(frow.get("reviewed_by", ""))
+                        if not rb or rb in ("nan", "None", ""):
+                            rb = full_name if decision_key in st.session_state.farmer_decisions else "—"
                         ra = str(frow.get("reviewed_at", ""))[:16].replace("T", " ")
-                        score_val = 0
-                        try:
-                            score_val = int(float(str(frow.get("score", 0))))
-                        except (ValueError, TypeError):
-                            pass
+                        if not ra.strip():
+                            ra = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
 
                         status_label = "Одобрено" if status_val == "approved" else "Отклонено"
                         status_color = "#059669" if status_val == "approved" else "#dc2626"
