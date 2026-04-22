@@ -521,11 +521,7 @@ def main():
             st.write(f"💰 {lr['requested_amount']:,} ₸")
 
         st.divider()
-        st.caption(
-            "Участник №3 — Frontend & Фермерский интерфейс  \n"
-            "Данные хранятся в `st.session_state.db_apps`  \n"
-            "и доступны Участнику №1 (кабинет Госа)."
-        )
+       
 
         if st.button("🗑️ Сбросить все заявки (DEV)", type="secondary"):
             st.session_state.db_apps            = []
