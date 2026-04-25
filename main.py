@@ -299,7 +299,6 @@ def show_role_selector():
 
     st.markdown(f"""
 <div class="hero-container">
-    <div class="hero-badge">🌿 DECENTRATHON 5.0 · МСХ РК</div>
     <div class="hero-title">Агро<span>Субсидия</span></div>
     <div style="font-size:clamp(13px,1.8vw,17px);color:#97C459;font-weight:300;
                 margin-bottom:10px;letter-spacing:0.01em;">
